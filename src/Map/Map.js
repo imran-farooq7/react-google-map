@@ -5,7 +5,7 @@ import {
 	InfoWindow,
 	withScriptjs,
 	withGoogleMap,
-	// DirectionsRenderer,
+	 DirectionsRenderer,
 } from "react-google-maps";
 import InfoWindowContent from "./InfoWindow";
 import { MAP_SETTINGS } from "../constants";
@@ -20,12 +20,43 @@ const {
 	DEFAULT_ZOOM,
 	DEFAULT_CENTER,
 	DEFAULT_MAP_OPTIONS,
-	 PIXEL_OFFSET,
-	// DIRECTIONS_OPTIONS,
+	PIXEL_OFFSET,
+	 DIRECTIONS_OPTIONS,
 } = MAP_SETTINGS;
+const DIRECTION_REQUEST_DELAY = 300;
+const delay = (time) =>
+	new Promise((resolve) => {
+		setTimeout(() => {
+			resolve();
+		}, time);
+	});
+
+const directionsRequest = ({ DirectionsService, origin, destination }) =>
+	new Promise((resolve, reject) => {
+		DirectionsService.route(
+			{
+				origin: new window.google.maps.LatLng(origin.lat, origin.lon),
+				destination: new window.google.maps.LatLng(
+					destination.lat,
+					destination.lon,
+				),
+				travelMode: window.google.maps.TravelMode.DRIVING,
+			},
+			(result, status) => {
+				if (status === window.google.maps.DirectionsStatus.OK) {
+					resolve(result);
+				} else {
+					reject(status);
+				}
+			},
+		);
+	});
+
 const MapContainer = ({ origins, destinations, hoveredOriginId }) => {
 	const mapRef = React.useRef(null);
 	const [selectedOriginId, setSelectedOriginId] = React.useState(null);
+    const [directions, setDirections] = React.useState({});
+
 	const selectedOrHoveredOriginId = hoveredOriginId || selectedOriginId;
 	const selectedOrigin = origins.find(({ id }) => selectedOriginId === id);
 	const [isClickOutsideDisabled, setIsClickOutsideDisabled] =
@@ -45,6 +76,44 @@ const MapContainer = ({ origins, destinations, hoveredOriginId }) => {
 			setSelectedOriginId(null);
 		}
 	}, [hoveredOriginId]);
+     const directionsToSelectedOrHoveredOrigin =
+				directions[selectedOrHoveredOriginId];
+			React.useEffect(() => {
+				if (selectedOrHoveredOriginId && !directionsToSelectedOrHoveredOrigin) {
+					const DirectionsService = new window.google.maps.DirectionsService();
+					const fetchDirections = async () => {
+						const selectedOrHoveredOrigin = origins.find(
+							({ id }) => selectedOrHoveredOriginId === id,
+						);
+						const tempDirectionsToOrigin = [];
+						for (const destination of destinations) {
+							const direction = await directionsRequest({
+								DirectionsService,
+								origin: {
+									lat: selectedOrHoveredOrigin.coordinates.lat,
+									lon: selectedOrHoveredOrigin.coordinates.lon,
+								},
+								destination: {
+									lat: destination.coordinates.lat,
+									lon: destination.coordinates.lon,
+								},
+							});
+							await delay(DIRECTION_REQUEST_DELAY);
+							tempDirectionsToOrigin.push(direction);
+						}
+						setDirections((prevState) => ({
+							...prevState,
+							[selectedOrHoveredOriginId]: tempDirectionsToOrigin,
+						}));
+					};
+					fetchDirections();
+				}
+			}, [
+				destinations,
+				directionsToSelectedOrHoveredOrigin,
+				selectedOrHoveredOriginId,
+				origins,
+			]);
 	return (
 		<GoogleMap
 			ref={mapRef}
@@ -100,6 +169,14 @@ const MapContainer = ({ origins, destinations, hoveredOriginId }) => {
 					</OutsideClickHandler>
 				</InfoWindow>
 			)}
+			{directionsToSelectedOrHoveredOrigin &&
+				directionsToSelectedOrHoveredOrigin.map((direction, i) => (
+					<DirectionsRenderer
+						key={i}
+						directions={direction}
+						options={DIRECTIONS_OPTIONS}
+					/>
+				))}
 		</GoogleMap>
 	);
 };
